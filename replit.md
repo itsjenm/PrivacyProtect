@@ -16,6 +16,7 @@ Preferred communication style: Simple, everyday language.
 - **UI Framework**: Bootstrap with custom CSS for drag-and-drop functionality
 - **Icons**: Font Awesome for consistent iconography
 - **Interaction Model**: Drag-and-drop file upload with real-time preview and processing feedback
+- **Face Detection**: Client-side face-api.js integration with visual detection overlays
 
 ### Backend Architecture
 - **Framework**: Flask (Python web framework)
@@ -23,6 +24,8 @@ Preferred communication style: Simple, everyday language.
 - **File Processing**: OpenCV for computer vision tasks, PIL for image manipulation
 - **Session Management**: Flask sessions with configurable secret key
 - **Error Handling**: Comprehensive logging and user-friendly error messages
+- **Database**: PostgreSQL with SQLAlchemy ORM for analytics and session tracking
+- **Analytics**: Real-time statistics dashboard with processing metrics
 
 ## Key Components
 

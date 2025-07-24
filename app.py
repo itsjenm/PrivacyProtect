@@ -4,9 +4,12 @@ import uuid
 import cv2
 import numpy as np
 import json
+import time
+from datetime import datetime, date
 from PIL import Image, ExifTags
 from PIL.ExifTags import TAGS
 from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for
+from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 import io
 import base64
@@ -17,6 +20,34 @@ logging.basicConfig(level=logging.DEBUG)
 app = Flask(__name__)
 app.secret_key = os.environ.get("SESSION_SECRET", "dev-key-change-in-production")
 
+# Database configuration
+database_url = os.environ.get("DATABASE_URL")
+database_enabled = False
+db = None
+ProcessingSession = None
+ProcessingStats = None
+FaceDetection = None
+
+if database_url:
+    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+    app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
+        "pool_recycle": 300,
+        "pool_pre_ping": True,
+    }
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+    
+    # Initialize database
+    try:
+        from models import db, ProcessingSession, ProcessingStats, FaceDetection
+        db.init_app(app)
+        database_enabled = True
+        logging.info(f"Database configured with URL: {database_url[:50]}...")
+    except ImportError as e:
+        logging.error(f"Database import error: {str(e)}")
+        database_enabled = False
+else:
+    logging.warning("No DATABASE_URL found - running without database functionality")
+
 # Configuration
 UPLOAD_FOLDER = 'uploads'
 PROCESSED_FOLDER = 'processed'
@@ -26,6 +57,16 @@ MAX_FILE_SIZE = 16 * 1024 * 1024  # 16MB
 # Ensure directories exist
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(PROCESSED_FOLDER, exist_ok=True)
+
+# Create database tables
+if database_enabled:
+    with app.app_context():
+        try:
+            db.create_all()
+            logging.info("Database tables created successfully")
+        except Exception as e:
+            logging.error(f"Database initialization error: {str(e)}")
+            database_enabled = False
 
 def allowed_file(filename):
     """Check if file extension is allowed"""
@@ -132,6 +173,94 @@ def image_to_base64(image_path):
         logging.error(f"Error converting image to base64: {str(e)}")
         return None
 
+def log_processing_session(user_ip, user_agent, original_filename, original_size, processed_size, 
+                          metadata_removed, faces_detected, faces_blurred, blur_strength, 
+                          face_coordinates, processing_time_ms, success=True, error_msg=None):
+    """Log processing session to database"""
+    if not database_enabled:
+        return None
+    
+    try:
+        # Create processing session
+        session = ProcessingSession(
+            user_ip=user_ip,
+            user_agent=user_agent,
+            original_filename=original_filename,
+            original_file_size=original_size,
+            processed_file_size=processed_size,
+            metadata_removed=metadata_removed,
+            faces_detected=faces_detected,
+            faces_blurred=faces_blurred,
+            blur_strength=blur_strength,
+            processing_success=success,
+            error_message=error_msg,
+            processing_time_ms=processing_time_ms
+        )
+        
+        db.session.add(session)
+        db.session.flush()  # Get the session ID
+        
+        # Log individual face detections
+        if face_coordinates and success:
+            for i, face in enumerate(face_coordinates):
+                face_detection = FaceDetection(
+                    session_id=session.id,
+                    face_index=i + 1,
+                    confidence_score=face.get('confidence', 0.0),
+                    box_x=face['x'],
+                    box_y=face['y'],
+                    box_width=face['width'],
+                    box_height=face['height'],
+                    dominant_expression=face.get('expression', 'unknown'),
+                    expression_confidence=face.get('expression_confidence', 0.0)
+                )
+                db.session.add(face_detection)
+        
+        # Update daily stats
+        update_daily_stats(original_size, processed_size, metadata_removed, 
+                          faces_detected, faces_blurred, processing_time_ms)
+        
+        db.session.commit()
+        logging.info(f"Processing session logged: {session.id}")
+        return session.id
+        
+    except Exception as e:
+        db.session.rollback()
+        logging.error(f"Error logging processing session: {str(e)}")
+        return None
+
+def update_daily_stats(original_size, processed_size, metadata_removed, 
+                      faces_detected, faces_blurred, processing_time_ms):
+    """Update daily processing statistics"""
+    try:
+        today = date.today()
+        stats = ProcessingStats.query.filter_by(date=today).first()
+        
+        if not stats:
+            stats = ProcessingStats(date=today)
+            db.session.add(stats)
+        
+        # Update counters
+        stats.total_images_processed += 1
+        stats.total_faces_detected += faces_detected
+        if metadata_removed:
+            stats.total_metadata_removals += 1
+        if faces_blurred:
+            stats.total_face_blurs += 1
+        
+        # Update file sizes (convert to MB)
+        stats.total_original_size_mb += original_size / (1024 * 1024)
+        stats.total_processed_size_mb += processed_size / (1024 * 1024)
+        
+        # Update average processing time
+        current_total_time = stats.avg_processing_time_ms * (stats.total_images_processed - 1)
+        stats.avg_processing_time_ms = (current_total_time + processing_time_ms) / stats.total_images_processed
+        
+        stats.updated_at = datetime.utcnow()
+        
+    except Exception as e:
+        logging.error(f"Error updating daily stats: {str(e)}")
+
 @app.route('/')
 def index():
     """Main page"""
@@ -140,6 +269,10 @@ def index():
 @app.route('/upload', methods=['POST'])
 def upload_file():
     """Handle file upload and processing"""
+    start_time = time.time()
+    user_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.environ.get('REMOTE_ADDR', 'unknown'))
+    user_agent = request.environ.get('HTTP_USER_AGENT', 'unknown')
+    
     try:
         if 'file' not in request.files:
             return jsonify({'error': 'No file selected'}), 400
@@ -222,6 +355,26 @@ def upload_file():
         original_b64 = image_to_base64(file_path)
         processed_b64 = image_to_base64(processed_path)
         
+        # Calculate processing time
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        
+        # Log to database
+        if database_enabled:
+            log_processing_session(
+                user_ip=user_ip,
+                user_agent=user_agent,
+                original_filename=filename,
+                original_size=original_size,
+                processed_size=processed_size,
+                metadata_removed=remove_meta,
+                faces_detected=faces_detected,
+                faces_blurred=blur_faces and faces_detected > 0,
+                blur_strength=blur_strength if blur_faces else None,
+                face_coordinates=face_coordinates,
+                processing_time_ms=processing_time_ms,
+                success=True
+            )
+        
         # Clean up original file
         os.remove(file_path)
         
@@ -234,12 +387,84 @@ def upload_file():
             'processed_size': processed_size,
             'size_reduction': round(((original_size - processed_size) / original_size) * 100, 1),
             'original_image': original_b64,
-            'processed_image': processed_b64
+            'processed_image': processed_b64,
+            'processing_time_ms': processing_time_ms
         })
         
     except Exception as e:
+        # Calculate processing time for failed requests
+        processing_time_ms = int((time.time() - start_time) * 1000)
+        
+        # Log failed processing attempt
+        if database_enabled:
+            log_processing_session(
+                user_ip=user_ip,
+                user_agent=user_agent,
+                original_filename=getattr(file, 'filename', 'unknown'),
+                original_size=0,
+                processed_size=0,
+                metadata_removed=False,
+                faces_detected=0,
+                faces_blurred=False,
+                blur_strength=None,
+                face_coordinates=[],
+                processing_time_ms=processing_time_ms,
+                success=False,
+                error_msg=str(e)
+            )
+        
         logging.error(f"Upload error: {str(e)}")
         return jsonify({'error': f'Processing failed: {str(e)}'}), 500
+
+@app.route('/stats')
+def stats_dashboard():
+    """Display processing statistics dashboard"""
+    if not database_enabled:
+        return render_template('stats.html', database_enabled=False, stats=None, recent_sessions=None)
+    
+    try:
+        # Get today's stats
+        today = date.today()
+        today_stats = ProcessingStats.query.filter_by(date=today).first()
+        
+        # Get all-time totals
+        all_time_stats = db.session.query(
+            db.func.sum(ProcessingStats.total_images_processed).label('total_images'),
+            db.func.sum(ProcessingStats.total_faces_detected).label('total_faces'),
+            db.func.sum(ProcessingStats.total_metadata_removals).label('total_metadata'),
+            db.func.sum(ProcessingStats.total_face_blurs).label('total_blurs'),
+            db.func.sum(ProcessingStats.total_original_size_mb).label('total_original_mb'),
+            db.func.sum(ProcessingStats.total_processed_size_mb).label('total_processed_mb'),
+            db.func.avg(ProcessingStats.avg_processing_time_ms).label('avg_processing_time')
+        ).first()
+        
+        # Get recent processing sessions
+        recent_sessions = ProcessingSession.query.order_by(
+            ProcessingSession.created_at.desc()
+        ).limit(10).all()
+        
+        # Get last 7 days stats
+        from datetime import timedelta
+        week_ago = today - timedelta(days=7)
+        weekly_stats = ProcessingStats.query.filter(
+            ProcessingStats.date >= week_ago
+        ).order_by(ProcessingStats.date.desc()).all()
+        
+        stats_data = {
+            'today': today_stats,
+            'all_time': all_time_stats,
+            'weekly': weekly_stats,
+            'today_date': today
+        }
+        
+        return render_template('stats.html', 
+                             database_enabled=True, 
+                             stats=stats_data, 
+                             recent_sessions=recent_sessions)
+        
+    except Exception as e:
+        logging.error(f"Error loading stats: {str(e)}")
+        return render_template('stats.html', database_enabled=False, stats=None, recent_sessions=None)
 
 @app.route('/download/<filename>')
 def download_file(filename):
