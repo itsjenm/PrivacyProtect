@@ -117,8 +117,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
         formData.append('remove_metadata', document.getElementById('removeMetadata').checked);
-        formData.append('blur_faces', document.getElementById('blurFaces').checked);
-        formData.append('blur_strength', document.getElementById('blurStrength').value);
+        formData.append('cloak_faces', document.getElementById('cloakFaces').checked);
+        formData.append('cloak_strength', document.getElementById('cloakStrength').value);
         
         // If we have detected faces, send their coordinates
         if (detectedFaces.length > 0) {
@@ -179,8 +179,8 @@ document.addEventListener('DOMContentLoaded', function() {
         let summaryText = '<strong>Image successfully protected!</strong><br>';
         
         if (data.faces_detected > 0) {
-            summaryText += `<i class="fas fa-user-secret me-1"></i> ${data.faces_detected} face(s) detected and blurred<br>`;
-        } else if (document.getElementById('blurFaces').checked) {
+            summaryText += `<i class="fas fa-user-secret me-1"></i> ${data.faces_detected} face(s) detected and AI-cloaked<br>`;
+        } else if (document.getElementById('cloakFaces').checked) {
             summaryText += `<i class="fas fa-info-circle me-1"></i> No faces detected in the image<br>`;
         }
         
