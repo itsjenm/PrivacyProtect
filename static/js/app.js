@@ -127,19 +127,23 @@ document.addEventListener('DOMContentLoaded', function() {
         // If we have detected faces, send their coordinates
         if (detectedFaces.length > 0) {
             const img = document.getElementById('uploadedImage');
-            const faceCoordinates = detectedFaces.map(detection => ({
-                x: Math.round(detection.detection.box.x),
-                y: Math.round(detection.detection.box.y),
-                width: Math.round(detection.detection.box.width),
-                height: Math.round(detection.detection.box.height),
-                // Include image dimensions for coordinate validation
-                image_width: img.naturalWidth,
-                image_height: img.naturalHeight,
-                display_width: img.width,
-                display_height: img.height
-            }));
-            formData.append('face_coordinates', JSON.stringify(faceCoordinates));
-            console.log('Sending face coordinates:', faceCoordinates);
+            if (img) {
+                const faceCoordinates = detectedFaces.map(detection => ({
+                    x: Math.round(detection.detection.box.x),
+                    y: Math.round(detection.detection.box.y),
+                    width: Math.round(detection.detection.box.width),
+                    height: Math.round(detection.detection.box.height),
+                    // Include image dimensions for coordinate validation
+                    image_width: img.naturalWidth || img.width,
+                    image_height: img.naturalHeight || img.height,
+                    display_width: img.width,
+                    display_height: img.height
+                }));
+                formData.append('face_coordinates', JSON.stringify(faceCoordinates));
+                console.log('Sending face coordinates:', faceCoordinates);
+            } else {
+                formData.append('face_coordinates', '[]');
+            }
         } else {
             formData.append('face_coordinates', '[]');
         }
