@@ -3,6 +3,7 @@ import logging
 import uuid
 import cv2
 import numpy as np
+import json
 from PIL import Image, ExifTags
 from PIL.ExifTags import TAGS
 from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for
@@ -47,61 +48,59 @@ def remove_metadata(image_path):
         logging.error(f"Error removing metadata: {str(e)}")
         raise
 
-def detect_and_blur_faces(image_path, blur_strength=50):
-    """Detect faces and apply blur/mask"""
+def blur_faces_from_coordinates(image_path, face_coordinates, blur_strength=50):
+    """Apply blur to specific face coordinates"""
     try:
         # Load the image
         img = cv2.imread(image_path)
         if img is None:
             raise ValueError("Could not load image")
         
-        # Convert to RGB for face detection
-        rgb_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        faces_processed = 0
         
-        # Load face cascade classifier
-        try:
-            # Try common locations for the cascade file
-            cascade_paths = [
-                '/usr/share/opencv4/haarcascades/haarcascade_frontalface_default.xml',
-                '/usr/local/share/OpenCV/haarcascades/haarcascade_frontalface_default.xml'
-            ]
-            
-            face_cascade = None
-            for path in cascade_paths:
-                if os.path.exists(path):
-                    face_cascade = cv2.CascadeClassifier(path)
-                    if not face_cascade.empty():
-                        break
-            
-            # If not found in standard locations, skip face detection
-            if face_cascade is None or face_cascade.empty():
-                logging.warning("Face cascade classifier not found, skipping face detection")
-                return img, 0
+        if face_coordinates:
+            # Apply blur to each face region
+            for face in face_coordinates:
+                x = int(face['x'])
+                y = int(face['y']) 
+                w = int(face['width'])
+                h = int(face['height'])
                 
-        except Exception as e:
-            logging.warning(f"Error loading face cascade: {str(e)}, skipping face detection")
-            return img, 0
+                # Ensure coordinates are within image bounds
+                x = max(0, min(x, img.shape[1] - 1))
+                y = max(0, min(y, img.shape[0] - 1))
+                w = max(1, min(w, img.shape[1] - x))
+                h = max(1, min(h, img.shape[0] - y))
+                
+                # Extract face region
+                face_region = img[y:y+h, x:x+w]
+                
+                if face_region.size > 0:
+                    # Apply Gaussian blur (ensure odd blur values)
+                    blur_val = blur_strength if blur_strength % 2 == 1 else blur_strength + 1
+                    blurred_face = cv2.GaussianBlur(face_region, (blur_val, blur_val), 0)
+                    
+                    # Replace original face with blurred version
+                    img[y:y+h, x:x+w] = blurred_face
+                    faces_processed += 1
         
-        # Detect faces
-        faces = face_cascade.detectMultiScale(rgb_img, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-        
-        faces_detected = len(faces)
-        logging.info(f"Detected {faces_detected} faces")
-        
-        # Apply blur to detected faces
-        for (x, y, w, h) in faces:
-            # Extract face region
-            face_region = img[y:y+h, x:x+w]
-            
-            # Apply Gaussian blur
-            blurred_face = cv2.GaussianBlur(face_region, (blur_strength, blur_strength), 0)
-            
-            # Replace original face with blurred version
-            img[y:y+h, x:x+w] = blurred_face
-        
-        return img, faces_detected
+        logging.info(f"Processed {faces_processed} faces for blurring")
+        return img, faces_processed
     except Exception as e:
-        logging.error(f"Error in face detection: {str(e)}")
+        logging.error(f"Error in face blurring: {str(e)}")
+        raise
+
+def detect_and_blur_faces(image_path, blur_strength=50):
+    """Legacy function - now just returns image without processing"""
+    try:
+        img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError("Could not load image")
+        
+        logging.info("Using client-side face detection - server-side detection disabled")
+        return img, 0
+    except Exception as e:
+        logging.error(f"Error loading image: {str(e)}")
         raise
 
 def get_image_metadata(image_path):
@@ -178,14 +177,25 @@ def upload_file():
         blur_faces = request.form.get('blur_faces', 'true') == 'true'
         blur_strength = int(request.form.get('blur_strength', 50))
         
+        # Get face coordinates from frontend (JSON string)
+        face_coordinates_str = request.form.get('face_coordinates', '[]')
+        try:
+            face_coordinates = json.loads(face_coordinates_str)
+        except (json.JSONDecodeError, TypeError):
+            face_coordinates = []
+        
         # Process the image
         processed_filename = f"processed_{unique_filename}"
         processed_path = os.path.join(PROCESSED_FOLDER, processed_filename)
         
         faces_detected = 0
         
-        if blur_faces:
-            # Apply face blurring
+        if blur_faces and face_coordinates:
+            # Apply face blurring using client-provided coordinates
+            processed_img, faces_detected = blur_faces_from_coordinates(file_path, face_coordinates, blur_strength)
+            cv2.imwrite(processed_path, processed_img)
+        elif blur_faces:
+            # Fallback to server-side detection (will likely find no faces)
             processed_img, faces_detected = detect_and_blur_faces(file_path, blur_strength)
             cv2.imwrite(processed_path, processed_img)
         else:

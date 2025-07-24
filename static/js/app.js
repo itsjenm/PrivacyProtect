@@ -1,4 +1,7 @@
 // Privacy Shield JavaScript
+let faceApiLoaded = false;
+let detectedFaces = [];
+
 document.addEventListener('DOMContentLoaded', function() {
     const uploadArea = document.getElementById('uploadArea');
     const fileInput = document.getElementById('fileInput');
@@ -116,6 +119,19 @@ document.addEventListener('DOMContentLoaded', function() {
         formData.append('remove_metadata', document.getElementById('removeMetadata').checked);
         formData.append('blur_faces', document.getElementById('blurFaces').checked);
         formData.append('blur_strength', document.getElementById('blurStrength').value);
+        
+        // If we have detected faces, send their coordinates
+        if (detectedFaces.length > 0) {
+            const faceCoordinates = detectedFaces.map(detection => ({
+                x: detection.detection.box.x,
+                y: detection.detection.box.y,
+                width: detection.detection.box.width,
+                height: detection.detection.box.height
+            }));
+            formData.append('face_coordinates', JSON.stringify(faceCoordinates));
+        } else {
+            formData.append('face_coordinates', '[]');
+        }
 
         // Show processing section
         processingSection.style.display = 'block';
@@ -279,4 +295,214 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('blurStrength').disabled = true;
         }
     });
+    
+    // Initialize Face API on page load
+    initializeFaceApi();
+
+    // Initialize Face API
+    async function initializeFaceApi() {
+        try {
+            console.log('Loading face-api.js models...');
+            // Load face-api.js models from CDN
+            await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
+            await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
+            await faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
+            await faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
+            
+            faceApiLoaded = true;
+            console.log('Face-api.js models loaded successfully');
+        } catch (error) {
+            console.error('Error loading face-api.js models:', error);
+            showAlert('Face detection models failed to load. Face detection will be unavailable.', 'warning');
+        }
+    }
+
+    // Detect faces in an image
+    async function detectFaces(imageElement) {
+        if (!faceApiLoaded) {
+            console.warn('Face API not loaded yet');
+            return [];
+        }
+
+        try {
+            console.log('Detecting faces...');
+            const detections = await faceapi
+                .detectAllFaces(imageElement, new faceapi.TinyFaceDetectorOptions())
+                .withFaceLandmarks()
+                .withFaceExpressions();
+            
+            console.log(`Detected ${detections.length} faces`);
+            return detections;
+        } catch (error) {
+            console.error('Error detecting faces:', error);
+            return [];
+        }
+    }
+
+    // Draw face detection boxes and labels
+    function drawFaceDetections(imageElement, detections) {
+        const canvas = document.getElementById('originalCanvas');
+        const container = imageElement.parentElement;
+        
+        // Set canvas size to match image container
+        const rect = imageElement.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+        
+        canvas.width = imageElement.offsetWidth;
+        canvas.height = imageElement.offsetHeight;
+        
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        if (detections.length === 0) {
+            return;
+        }
+
+        // Calculate scale factors
+        const scaleX = imageElement.offsetWidth / imageElement.naturalWidth;
+        const scaleY = imageElement.offsetHeight / imageElement.naturalHeight;
+        
+        detections.forEach((detection, index) => {
+            const box = detection.detection.box;
+            
+            // Scale the box coordinates
+            const x = box.x * scaleX;
+            const y = box.y * scaleY;
+            const width = box.width * scaleX;
+            const height = box.height * scaleY;
+            
+            // Draw detection box
+            ctx.strokeStyle = '#ff4444';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(x, y, width, height);
+            
+            // Draw semi-transparent overlay
+            ctx.fillStyle = 'rgba(255, 68, 68, 0.1)';
+            ctx.fillRect(x, y, width, height);
+            
+            // Draw label
+            const confidence = Math.round(detection.detection.score * 100);
+            const label = `Face ${index + 1} (${confidence}%)`;
+            
+            ctx.fillStyle = '#ff4444';
+            ctx.fillRect(x, y - 25, ctx.measureText(label).width + 16, 20);
+            
+            ctx.fillStyle = 'white';
+            ctx.font = '12px Arial';
+            ctx.fontWeight = 'bold';
+            ctx.fillText(label, x + 8, y - 10);
+        });
+    }
+
+    // Display face detection information
+    function displayFaceInfo(detections) {
+        const faceInfoContainer = document.getElementById('faceDetectionInfo');
+        
+        if (detections.length === 0) {
+            faceInfoContainer.innerHTML = `
+                <div class="face-info-card">
+                    <div class="d-flex align-items-center">
+                        <i class="fas fa-info-circle text-info me-2"></i>
+                        <span><strong>No faces detected</strong></span>
+                    </div>
+                    <small class="text-muted">The image appears to contain no detectable faces.</small>
+                </div>
+            `;
+            return;
+        }
+
+        let infoHtml = `
+            <div class="face-info-card">
+                <div class="d-flex align-items-center mb-2">
+                    <i class="fas fa-user-secret text-danger me-2"></i>
+                    <span><strong>${detections.length} Face(s) Detected</strong></span>
+                </div>
+        `;
+
+        detections.forEach((detection, index) => {
+            const confidence = Math.round(detection.detection.score * 100);
+            const box = detection.detection.box;
+            
+            // Get dominant expression
+            let dominantExpression = 'neutral';
+            let maxConfidence = 0;
+            if (detection.expressions) {
+                Object.entries(detection.expressions).forEach(([expression, value]) => {
+                    if (value > maxConfidence) {
+                        maxConfidence = value;
+                        dominantExpression = expression;
+                    }
+                });
+            }
+
+            infoHtml += `
+                <div class="mb-2 pb-2 border-bottom">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <span class="fw-bold">Face ${index + 1}</span>
+                        <span class="badge bg-danger">${confidence}% confidence</span>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <small class="text-muted">Position:</small><br>
+                            <small>X: ${Math.round(box.x)}, Y: ${Math.round(box.y)}</small>
+                        </div>
+                        <div class="col-6">
+                            <small class="text-muted">Size:</small><br>
+                            <small>${Math.round(box.width)} × ${Math.round(box.height)}px</small>
+                        </div>
+                    </div>
+                    ${detection.expressions ? `
+                        <div class="mt-1">
+                            <small class="text-muted">Expression:</small>
+                            <span class="badge bg-info ms-1">${dominantExpression}</span>
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        });
+
+        infoHtml += `
+                <div class="mt-2">
+                    <small class="text-warning">
+                        <i class="fas fa-exclamation-triangle me-1"></i>
+                        These faces will be blurred in the protected image to prevent AI recognition.
+                    </small>
+                </div>
+            </div>
+        `;
+
+        faceInfoContainer.innerHTML = infoHtml;
+    }
+
+    // Enhanced display results function with face detection
+    const originalDisplayResults = displayResults;
+    displayResults = async function(data) {
+        // Call original display results
+        originalDisplayResults(data);
+        
+        // Wait for image to load, then detect faces
+        const originalImage = document.getElementById('originalImage');
+        originalImage.onload = async function() {
+            if (faceApiLoaded) {
+                try {
+                    showAlert('Analyzing image for faces...', 'info');
+                    detectedFaces = await detectFaces(originalImage);
+                    drawFaceDetections(originalImage, detectedFaces);
+                    displayFaceInfo(detectedFaces);
+                    
+                    // Remove the analysis alert
+                    setTimeout(() => {
+                        const alerts = document.querySelectorAll('.alert-info');
+                        alerts.forEach(alert => {
+                            if (alert.textContent.includes('Analyzing image')) {
+                                alert.remove();
+                            }
+                        });
+                    }, 2000);
+                } catch (error) {
+                    console.error('Error in face detection:', error);
+                }
+            }
+        };
+    };
 });
