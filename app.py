@@ -100,32 +100,53 @@ def blur_faces_from_coordinates(image_path, face_coordinates, blur_strength=50):
         faces_processed = 0
         
         if face_coordinates:
+            logging.info(f"Processing {len(face_coordinates)} face coordinates for blurring")
+            
             # Apply blur to each face region
-            for face in face_coordinates:
-                x = int(face['x'])
-                y = int(face['y']) 
-                w = int(face['width'])
-                h = int(face['height'])
-                
-                # Ensure coordinates are within image bounds
-                x = max(0, min(x, img.shape[1] - 1))
-                y = max(0, min(y, img.shape[0] - 1))
-                w = max(1, min(w, img.shape[1] - x))
-                h = max(1, min(h, img.shape[0] - y))
-                
-                # Extract face region
-                face_region = img[y:y+h, x:x+w]
-                
-                if face_region.size > 0:
-                    # Apply Gaussian blur (ensure odd blur values)
-                    blur_val = blur_strength if blur_strength % 2 == 1 else blur_strength + 1
-                    blurred_face = cv2.GaussianBlur(face_region, (blur_val, blur_val), 0)
+            for i, face in enumerate(face_coordinates):
+                try:
+                    x = int(face['x'])
+                    y = int(face['y']) 
+                    w = int(face['width'])
+                    h = int(face['height'])
                     
-                    # Replace original face with blurred version
-                    img[y:y+h, x:x+w] = blurred_face
-                    faces_processed += 1
+                    logging.info(f"Face {i+1}: x={x}, y={y}, w={w}, h={h} (image size: {img.shape[1]}x{img.shape[0]})")
+                    
+                    # Ensure coordinates are within image bounds
+                    x = max(0, min(x, img.shape[1] - 1))
+                    y = max(0, min(y, img.shape[0] - 1))
+                    w = max(1, min(w, img.shape[1] - x))
+                    h = max(1, min(h, img.shape[0] - y))
+                    
+                    # Add some padding around the face for better coverage
+                    padding = max(5, min(w, h) // 10)
+                    x = max(0, x - padding)
+                    y = max(0, y - padding)
+                    w = min(img.shape[1] - x, w + 2 * padding)
+                    h = min(img.shape[0] - y, h + 2 * padding)
+                    
+                    logging.info(f"Face {i+1} adjusted: x={x}, y={y}, w={w}, h={h}")
+                    
+                    # Extract face region
+                    face_region = img[y:y+h, x:x+w]
+                    
+                    if face_region.size > 0 and face_region.shape[0] > 0 and face_region.shape[1] > 0:
+                        # Apply Gaussian blur (ensure odd blur values)
+                        blur_val = max(5, blur_strength if blur_strength % 2 == 1 else blur_strength + 1)
+                        blurred_face = cv2.GaussianBlur(face_region, (blur_val, blur_val), 0)
+                        
+                        # Replace original face with blurred version
+                        img[y:y+h, x:x+w] = blurred_face
+                        faces_processed += 1
+                        logging.info(f"Successfully blurred face {i+1}")
+                    else:
+                        logging.warning(f"Face {i+1} region is empty or invalid")
+                        
+                except (KeyError, ValueError, TypeError) as e:
+                    logging.error(f"Invalid face coordinates for face {i+1}: {e}")
+                    continue
         
-        logging.info(f"Processed {faces_processed} faces for blurring")
+        logging.info(f"Processed {faces_processed} out of {len(face_coordinates)} faces for blurring")
         return img, faces_processed
     except Exception as e:
         logging.error(f"Error in face blurring: {str(e)}")
@@ -241,20 +262,20 @@ def update_daily_stats(original_size, processed_size, metadata_removed,
             db.session.add(stats)
         
         # Update counters
-        stats.total_images_processed += 1
-        stats.total_faces_detected += faces_detected
+        stats.total_images_processed = (stats.total_images_processed or 0) + 1
+        stats.total_faces_detected = (stats.total_faces_detected or 0) + faces_detected
         if metadata_removed:
-            stats.total_metadata_removals += 1
+            stats.total_metadata_removals = (stats.total_metadata_removals or 0) + 1
         if faces_blurred:
-            stats.total_face_blurs += 1
+            stats.total_face_blurs = (stats.total_face_blurs or 0) + 1
         
         # Update file sizes (convert to MB)
-        stats.total_original_size_mb += original_size / (1024 * 1024)
-        stats.total_processed_size_mb += processed_size / (1024 * 1024)
+        stats.total_original_size_mb = (stats.total_original_size_mb or 0.0) + (original_size / (1024 * 1024))
+        stats.total_processed_size_mb = (stats.total_processed_size_mb or 0.0) + (processed_size / (1024 * 1024))
         
         # Update average processing time
-        current_total_time = stats.avg_processing_time_ms * (stats.total_images_processed - 1)
-        stats.avg_processing_time_ms = (current_total_time + processing_time_ms) / stats.total_images_processed
+        current_total_time = (stats.avg_processing_time_ms or 0.0) * ((stats.total_images_processed or 1) - 1)
+        stats.avg_processing_time_ms = (current_total_time + processing_time_ms) / (stats.total_images_processed or 1)
         
         stats.updated_at = datetime.utcnow()
         
@@ -314,8 +335,10 @@ def upload_file():
         face_coordinates_str = request.form.get('face_coordinates', '[]')
         try:
             face_coordinates = json.loads(face_coordinates_str)
+            logging.info(f"Received face coordinates: {face_coordinates}")
         except (json.JSONDecodeError, TypeError):
             face_coordinates = []
+            logging.warning("Failed to parse face coordinates")
         
         # Process the image
         processed_filename = f"processed_{unique_filename}"
