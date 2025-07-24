@@ -89,8 +89,8 @@ def remove_metadata(image_path):
         logging.error(f"Error removing metadata: {str(e)}")
         raise
 
-def cloak_faces_from_coordinates(image_path, face_coordinates, cloak_strength=50):
-    """Apply AI cloaking to specific face coordinates to fool AI recognition"""
+def blur_faces_from_coordinates(image_path, face_coordinates, blur_strength=50):
+    """Apply blur to specific face coordinates"""
     try:
         # Load the image
         img = cv2.imread(image_path)
@@ -100,9 +100,9 @@ def cloak_faces_from_coordinates(image_path, face_coordinates, cloak_strength=50
         faces_processed = 0
         
         if face_coordinates:
-            logging.info(f"Processing {len(face_coordinates)} face coordinates for AI cloaking")
+            logging.info(f"Processing {len(face_coordinates)} face coordinates for blurring")
             
-            # Apply cloaking to each face region
+            # Apply blur to each face region
             for i, face in enumerate(face_coordinates):
                 try:
                     x = int(face['x'])
@@ -131,13 +131,14 @@ def cloak_faces_from_coordinates(image_path, face_coordinates, cloak_strength=50
                     face_region = img[y:y+h, x:x+w]
                     
                     if face_region.size > 0 and face_region.shape[0] > 0 and face_region.shape[1] > 0:
-                        # Apply AI cloaking techniques
-                        cloaked_face = apply_ai_cloaking(face_region, cloak_strength)
+                        # Apply Gaussian blur (ensure odd blur values)
+                        blur_val = max(5, blur_strength if blur_strength % 2 == 1 else blur_strength + 1)
+                        blurred_face = cv2.GaussianBlur(face_region, (blur_val, blur_val), 0)
                         
-                        # Replace original face with cloaked version
-                        img[y:y+h, x:x+w] = cloaked_face
+                        # Replace original face with blurred version
+                        img[y:y+h, x:x+w] = blurred_face
                         faces_processed += 1
-                        logging.info(f"Successfully cloaked face {i+1}")
+                        logging.info(f"Successfully blurred face {i+1}")
                     else:
                         logging.warning(f"Face {i+1} region is empty or invalid")
                         
@@ -145,78 +146,11 @@ def cloak_faces_from_coordinates(image_path, face_coordinates, cloak_strength=50
                     logging.error(f"Invalid face coordinates for face {i+1}: {e}")
                     continue
         
-        logging.info(f"Processed {faces_processed} out of {len(face_coordinates)} faces for AI cloaking")
+        logging.info(f"Processed {faces_processed} out of {len(face_coordinates)} faces for blurring")
         return img, faces_processed
     except Exception as e:
-        logging.error(f"Error in face cloaking: {str(e)}")
+        logging.error(f"Error in face blurring: {str(e)}")
         raise
-
-def apply_ai_cloaking(face_region, strength=50):
-    """Apply multiple AI cloaking techniques to make faces unrecognizable to AI"""
-    try:
-        # Convert strength to a scale from 0 to 1
-        intensity = strength / 100.0
-        
-        # Make a copy to work with
-        cloaked = face_region.copy()
-        
-        # 1. Adversarial noise injection
-        # Add subtle noise that confuses AI but is barely visible to humans
-        noise_strength = intensity * 0.3
-        noise = np.random.normal(0, noise_strength * 25, face_region.shape).astype(np.float32)
-        cloaked = cv2.addWeighted(cloaked.astype(np.float32), 1.0, noise, 0.8, 0)
-        cloaked = np.clip(cloaked, 0, 255).astype(np.uint8)
-        
-        # 2. Subtle color space manipulation
-        # Shift colors in ways that confuse AI recognition
-        hsv = cv2.cvtColor(cloaked, cv2.COLOR_BGR2HSV).astype(np.float32)
-        hsv[:, :, 0] = (hsv[:, :, 0] + intensity * 10) % 180  # Hue shift
-        hsv[:, :, 1] = np.clip(hsv[:, :, 1] * (1 + intensity * 0.2), 0, 255)  # Saturation
-        cloaked = cv2.cvtColor(hsv.astype(np.uint8), cv2.COLOR_HSV2BGR)
-        
-        # 3. Micro-texture perturbation
-        # Add high-frequency patterns that fool neural networks
-        if intensity > 0.3:
-            pattern_size = max(3, int(5 * intensity))
-            pattern = np.sin(np.arange(face_region.shape[0])[:, None] * pattern_size) * \
-                     np.cos(np.arange(face_region.shape[1])[None, :] * pattern_size)
-            pattern = (pattern * intensity * 15).astype(np.float32)
-            pattern = np.stack([pattern, pattern, pattern], axis=2)
-            cloaked = cv2.addWeighted(cloaked.astype(np.float32), 1.0, pattern, 0.3, 0)
-            cloaked = np.clip(cloaked, 0, 255).astype(np.uint8)
-        
-        # 4. Edge enhancement to confuse feature detection
-        # Enhance or suppress certain edges that AI relies on
-        gray = cv2.cvtColor(cloaked, cv2.COLOR_BGR2GRAY)
-        edges = cv2.Canny(gray, 50, 150)
-        edge_mask = np.stack([edges, edges, edges], axis=2) / 255.0
-        edge_manipulation = edge_mask * intensity * 20
-        cloaked = cv2.addWeighted(cloaked.astype(np.float32), 1.0, edge_manipulation, 0.5, 0)
-        cloaked = np.clip(cloaked, 0, 255).astype(np.uint8)
-        
-        # 5. Subtle geometric distortion
-        # Apply minor warping that disrupts facial landmarks
-        if intensity > 0.5:
-            h, w = face_region.shape[:2]
-            distortion_strength = intensity * 2.0
-            
-            # Create displacement maps
-            map_x = np.arange(w, dtype=np.float32)[None, :].repeat(h, axis=0)
-            map_y = np.arange(h, dtype=np.float32)[:, None].repeat(w, axis=1)
-            
-            # Add subtle wave distortions
-            map_x += np.sin(map_y / (h * 0.3)) * distortion_strength
-            map_y += np.cos(map_x / (w * 0.3)) * distortion_strength
-            
-            cloaked = cv2.remap(cloaked, map_x, map_y, cv2.INTER_LINEAR)
-        
-        logging.info(f"Applied AI cloaking with intensity {intensity:.2f}")
-        return cloaked
-        
-    except Exception as e:
-        logging.error(f"Error applying AI cloaking: {str(e)}")
-        # Return original if cloaking fails
-        return face_region
 
 def detect_and_blur_faces(image_path, blur_strength=50):
     """Legacy function - now just returns image without processing"""
@@ -394,8 +328,8 @@ def upload_file():
         
         # Process options
         remove_meta = request.form.get('remove_metadata', 'true') == 'true'
-        cloak_faces = request.form.get('cloak_faces', 'true') == 'true'
-        cloak_strength = int(request.form.get('cloak_strength', 50))
+        blur_faces = request.form.get('blur_faces', 'true') == 'true'
+        blur_strength = int(request.form.get('blur_strength', 50))
         
         # Get face coordinates from frontend (JSON string)
         face_coordinates_str = request.form.get('face_coordinates', '[]')
@@ -412,16 +346,16 @@ def upload_file():
         
         faces_detected = 0
         
-        if cloak_faces and face_coordinates:
-            # Apply AI cloaking using client-provided coordinates
-            processed_img, faces_detected = cloak_faces_from_coordinates(file_path, face_coordinates, cloak_strength)
+        if blur_faces and face_coordinates:
+            # Apply face blurring using client-provided coordinates
+            processed_img, faces_detected = blur_faces_from_coordinates(file_path, face_coordinates, blur_strength)
             cv2.imwrite(processed_path, processed_img)
-        elif cloak_faces:
+        elif blur_faces:
             # Fallback to server-side detection (will likely find no faces)
-            processed_img, faces_detected = detect_and_blur_faces(file_path, cloak_strength)
+            processed_img, faces_detected = detect_and_blur_faces(file_path, blur_strength)
             cv2.imwrite(processed_path, processed_img)
         else:
-            # Just copy the original if no face cloaking
+            # Just copy the original if no face blurring
             import shutil
             shutil.copy2(file_path, processed_path)
         
@@ -457,8 +391,8 @@ def upload_file():
                 processed_size=processed_size,
                 metadata_removed=remove_meta,
                 faces_detected=faces_detected,
-                faces_blurred=cloak_faces and faces_detected > 0,
-                blur_strength=cloak_strength if cloak_faces else None,
+                faces_blurred=blur_faces and faces_detected > 0,
+                blur_strength=blur_strength if blur_faces else None,
                 face_coordinates=face_coordinates,
                 processing_time_ms=processing_time_ms,
                 success=True

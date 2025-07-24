@@ -81,19 +81,18 @@
                                         <div class="card">
                                             <div class="card-body">
                                                 <h5 class="card-title">
-                                                    <i class="fas fa-user-secret me-2"></i>AI Face Cloaking
+                                                    <i class="fas fa-user-secret me-2"></i>Face Protection
                                                 </h5>
                                                 <div class="form-check form-switch mb-2">
-                                                    <input class="form-check-input" type="checkbox" id="cloakFaces" name="cloak_faces" checked>
-                                                    <label class="form-check-label" for="cloakFaces">
-                                                        Apply AI cloaking to faces
+                                                    <input class="form-check-input" type="checkbox" id="blurFaces" name="blur_faces" checked>
+                                                    <label class="form-check-label" for="blurFaces">
+                                                        Blur detected faces
                                                     </label>
                                                 </div>
-                                                <small class="text-muted mb-2 d-block">Uses adversarial techniques to fool AI recognition while keeping faces natural-looking</small>
                                                 <div class="mb-2">
-                                                    <label for="cloakStrength" class="form-label">Cloaking Strength</label>
-                                                    <input type="range" class="form-range" id="cloakStrength" name="cloak_strength" min="20" max="100" value="50" step="10">
-                                                    <small class="text-muted">Higher values = stronger AI protection</small>
+                                                    <label for="blurStrength" class="form-label">Blur Strength</label>
+                                                    <input type="range" class="form-range" id="blurStrength" name="blur_strength" min="20" max="100" value="50" step="10">
+                                                    <small class="text-muted">Higher values = more blur</small>
                                                 </div>
                                             </div>
                                         </div>
