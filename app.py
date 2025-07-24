@@ -152,18 +152,105 @@ def blur_faces_from_coordinates(image_path, face_coordinates, blur_strength=50):
         logging.error(f"Error in face blurring: {str(e)}")
         raise
 
-def detect_and_blur_faces(image_path, blur_strength=50):
-    """Legacy function - now just returns image without processing"""
+def detect_and_blur_faces_opencv(image_path, blur_strength=50):
+    """Detect and blur faces using OpenCV Haar cascades"""
     try:
+        # Load the image
         img = cv2.imread(image_path)
         if img is None:
             raise ValueError("Could not load image")
         
-        logging.info("Using client-side face detection - server-side detection disabled")
-        return img, 0
+        # Convert to grayscale for face detection
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Initialize face cascade classifier
+        # Try multiple cascade files for better detection
+        cascade_files = [
+            cv2.data.haarcascades + 'haarcascade_frontalface_default.xml',
+            cv2.data.haarcascades + 'haarcascade_frontalface_alt.xml',
+            cv2.data.haarcascades + 'haarcascade_frontalface_alt2.xml'
+        ]
+        
+        all_faces = []
+        
+        for cascade_file in cascade_files:
+            try:
+                face_cascade = cv2.CascadeClassifier(cascade_file)
+                if face_cascade.empty():
+                    continue
+                    
+                # Detect faces with multiple parameters for better accuracy
+                faces = face_cascade.detectMultiScale(
+                    gray,
+                    scaleFactor=1.1,
+                    minNeighbors=5,
+                    minSize=(30, 30),
+                    maxSize=(300, 300)
+                )
+                
+                # Add detected faces to the list
+                for (x, y, w, h) in faces:
+                    # Check if this face overlaps significantly with existing faces
+                    is_duplicate = False
+                    for existing_face in all_faces:
+                        ex, ey, ew, eh = existing_face
+                        # Calculate overlap
+                        overlap_x = max(0, min(x + w, ex + ew) - max(x, ex))
+                        overlap_y = max(0, min(y + h, ey + eh) - max(y, ey))
+                        overlap_area = overlap_x * overlap_y
+                        face_area = w * h
+                        
+                        if overlap_area > 0.5 * face_area:  # More than 50% overlap
+                            is_duplicate = True
+                            break
+                    
+                    if not is_duplicate:
+                        all_faces.append((x, y, w, h))
+                        
+            except Exception as e:
+                logging.warning(f"Error with cascade {cascade_file}: {str(e)}")
+                continue
+        
+        # Apply blur to detected faces
+        faces_processed = 0
+        
+        for (x, y, w, h) in all_faces:
+            # Add padding around face for better coverage
+            padding = max(5, min(w, h) // 10)
+            x = max(0, x - padding)
+            y = max(0, y - padding)
+            w = min(img.shape[1] - x, w + 2 * padding)
+            h = min(img.shape[0] - y, h + 2 * padding)
+            
+            # Extract face region
+            face_region = img[y:y+h, x:x+w]
+            
+            if face_region.size > 0:
+                # Apply Gaussian blur
+                blur_val = max(5, blur_strength if blur_strength % 2 == 1 else blur_strength + 1)
+                blurred_face = cv2.GaussianBlur(face_region, (blur_val, blur_val), 0)
+                
+                # Replace original face with blurred version
+                img[y:y+h, x:x+w] = blurred_face
+                faces_processed += 1
+        
+        logging.info(f"OpenCV detected and blurred {faces_processed} faces using {len(cascade_files)} cascades")
+        return img, faces_processed
+        
     except Exception as e:
-        logging.error(f"Error loading image: {str(e)}")
+        logging.error(f"Error in OpenCV face detection: {str(e)}")
         raise
+
+def detect_and_blur_faces(image_path, blur_strength=50):
+    """Legacy function - fallback to OpenCV detection"""
+    try:
+        logging.info("Using OpenCV face detection as fallback")
+        return detect_and_blur_faces_opencv(image_path, blur_strength)
+    except Exception as e:
+        logging.error(f"Error in fallback face detection: {str(e)}")
+        # Return original image if detection fails
+        img = cv2.imread(image_path)
+        return img, 0
 
 def get_image_metadata(image_path):
     """Extract metadata information from image"""
@@ -330,6 +417,7 @@ def upload_file():
         remove_meta = request.form.get('remove_metadata', 'true') == 'true'
         blur_faces = request.form.get('blur_faces', 'true') == 'true'
         blur_strength = int(request.form.get('blur_strength', 50))
+        detection_method = request.form.get('detection_method', 'client')
         
         # Get face coordinates from frontend (JSON string)
         face_coordinates_str = request.form.get('face_coordinates', '[]')
@@ -346,14 +434,43 @@ def upload_file():
         
         faces_detected = 0
         
-        if blur_faces and face_coordinates:
-            # Apply face blurring using client-provided coordinates
-            processed_img, faces_detected = blur_faces_from_coordinates(file_path, face_coordinates, blur_strength)
-            cv2.imwrite(processed_path, processed_img)
-        elif blur_faces:
-            # Fallback to server-side detection (will likely find no faces)
-            processed_img, faces_detected = detect_and_blur_faces(file_path, blur_strength)
-            cv2.imwrite(processed_path, processed_img)
+        if blur_faces:
+            if detection_method == 'server':
+                # Force server-side OpenCV detection
+                logging.info("Using OpenCV server-side face detection (forced)")
+                processed_img, faces_detected = detect_and_blur_faces_opencv(file_path, blur_strength)
+                cv2.imwrite(processed_path, processed_img)
+            elif detection_method == 'hybrid':
+                # Use both client and server detection for maximum coverage
+                logging.info("Using hybrid face detection (client + server)")
+                client_faces = 0
+                server_faces = 0
+                
+                # Start with client-side coordinates if available
+                if face_coordinates:
+                    processed_img, client_faces = blur_faces_from_coordinates(file_path, face_coordinates, blur_strength)
+                    cv2.imwrite(processed_path, processed_img)
+                    
+                    # Then run server-side detection on the same image for additional faces
+                    additional_img, server_faces = detect_and_blur_faces_opencv(processed_path, blur_strength)
+                    cv2.imwrite(processed_path, additional_img)
+                else:
+                    # Only server-side if no client coordinates
+                    processed_img, server_faces = detect_and_blur_faces_opencv(file_path, blur_strength)
+                    cv2.imwrite(processed_path, processed_img)
+                
+                faces_detected = client_faces + server_faces
+                logging.info(f"Hybrid detection: {client_faces} client faces + {server_faces} server faces = {faces_detected} total")
+            else:
+                # Default: client-side with server fallback
+                if face_coordinates:
+                    logging.info("Using client-side face detection coordinates")
+                    processed_img, faces_detected = blur_faces_from_coordinates(file_path, face_coordinates, blur_strength)
+                    cv2.imwrite(processed_path, processed_img)
+                else:
+                    logging.info("No client-side faces found, using OpenCV server-side detection")
+                    processed_img, faces_detected = detect_and_blur_faces_opencv(file_path, blur_strength)
+                    cv2.imwrite(processed_path, processed_img)
         else:
             # Just copy the original if no face blurring
             import shutil

@@ -120,6 +120,10 @@ document.addEventListener('DOMContentLoaded', function() {
         formData.append('blur_faces', document.getElementById('blurFaces').checked);
         formData.append('blur_strength', document.getElementById('blurStrength').value);
         
+        // Get selected detection method
+        const detectionMethod = document.querySelector('input[name="detectionMethod"]:checked').value;
+        formData.append('detection_method', detectionMethod);
+        
         // If we have detected faces, send their coordinates
         if (detectedFaces.length > 0) {
             const img = document.getElementById('uploadedImage');
