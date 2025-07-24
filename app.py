@@ -179,30 +179,43 @@ def detect_and_blur_faces_opencv(image_path, blur_strength=50):
                 if face_cascade.empty():
                     continue
                     
-                # Detect faces with multiple parameters for better accuracy
+                # Detect faces with stricter parameters to reduce false positives
                 faces = face_cascade.detectMultiScale(
                     gray,
-                    scaleFactor=1.1,
-                    minNeighbors=5,
-                    minSize=(30, 30),
-                    maxSize=(300, 300)
+                    scaleFactor=1.2,
+                    minNeighbors=8,
+                    minSize=(50, 50),
+                    flags=cv2.CASCADE_SCALE_IMAGE
                 )
                 
-                # Add detected faces to the list
+                # Add detected faces to the list with quality filtering
                 for (x, y, w, h) in faces:
+                    # Basic quality filtering - skip very small or unusually shaped faces
+                    if w < 40 or h < 40 or w/h > 2.0 or h/w > 2.0:
+                        continue
+                    
                     # Check if this face overlaps significantly with existing faces
                     is_duplicate = False
                     for existing_face in all_faces:
                         ex, ey, ew, eh = existing_face
-                        # Calculate overlap
+                        # Calculate overlap using IoU (Intersection over Union)
                         overlap_x = max(0, min(x + w, ex + ew) - max(x, ex))
                         overlap_y = max(0, min(y + h, ey + eh) - max(y, ey))
                         overlap_area = overlap_x * overlap_y
-                        face_area = w * h
                         
-                        if overlap_area > 0.5 * face_area:  # More than 50% overlap
-                            is_duplicate = True
-                            break
+                        face_area = w * h
+                        existing_area = ew * eh
+                        union_area = face_area + existing_area - overlap_area
+                        
+                        if union_area > 0:
+                            iou = overlap_area / union_area
+                            if iou > 0.3:  # 30% IoU threshold
+                                # Keep the larger face
+                                if face_area > existing_area:
+                                    all_faces.remove(existing_face)
+                                else:
+                                    is_duplicate = True
+                                break
                     
                     if not is_duplicate:
                         all_faces.append((x, y, w, h))
