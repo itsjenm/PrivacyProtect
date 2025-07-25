@@ -1,0 +1,26 @@
+# GitHub Pages Jekyll configuration
+# This file tells GitHub Pages not to use Jekyll processing
+
+# If you want to use a custom domain, uncomment and modify the line below
+# url: "https://yourusername.github.io"
+# baseurl: "/PrivacyProtect"
+
+# Build settings
+markdown: kramdown
+highlighter: rouge
+
+# Exclude files from processing
+exclude:
+  - app.py
+  - main.py
+  - models.py
+  - pyproject.toml
+  - uv.lock
+  - replit.md
+  - processed/
+  - uploads/
+  - templates/
+  - __pycache__/
+  - .env
+  - .gitignore
+  - README.md
