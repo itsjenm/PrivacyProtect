@@ -4,6 +4,62 @@
 
 Privacy Shield is a Flask-based web application designed to protect user privacy by removing metadata and blurring faces in uploaded images. The application provides a simple, user-friendly interface for processing images to prevent AI recognition and metadata tracking. All processing occurs server-side with automatic cleanup to ensure user privacy.
 
+## Getting Started
+
+### Prerequisites
+- Python 3.8 or higher
+- pip (Python package manager)
+- Git
+
+### Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/itsjenm/PrivacyProtect.git
+   cd PrivacyProtect
+   ```
+
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+   
+   If you prefer using a virtual environment:
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
+
+3. Start the application:
+   ```bash
+   python app.py
+   ```
+
+4. Open your browser and navigate to:
+   ```
+   http://localhost:5000
+   ```
+
+### Environment Variables (Optional)
+- `DATABASE_URL`: Configure database connection (PostgreSQL recommended)
+- `SESSION_SECRET`: Custom secret key for session security
+
+## Usage Guide with Screenshots
+
+
+
+### 1. Face Detection
+![Face Detection](uploads/Face-Detection_Example.jpg)
+*Automatic face detection with overlay boxes*
+
+### 2. Metadata View (Before)
+![Metadata View](uploads/meta-data-before.jpg)
+
+### 2. Metadata View (After)
+![Metadata View](uploads/meta-data-after.jpg)
+*Display of removed metadata information*
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
@@ -68,10 +124,12 @@ Preferred communication style: Simple, everyday language.
 - **PIL (Pillow)**: Image processing for metadata removal and manipulation
 - **NumPy**: Numerical operations for image data processing
 - **Werkzeug**: Security utilities for filename handling
+- **Flask-SQLAlchemy**: ORM for database operations (if using analytics)
 
 ### Frontend Dependencies
 - **Bootstrap 5**: UI framework with dark theme support
 - **Font Awesome**: Icon library for consistent visual elements
+- **face-api.js**: Client-side face detection library
 - **Vanilla JavaScript**: No framework dependencies for lightweight client-side functionality
 
 ### System Dependencies
@@ -99,3 +157,37 @@ Preferred communication style: Simple, everyday language.
 - **Error Recovery**: Comprehensive error handling with user feedback
 
 The application prioritizes user privacy through local processing, automatic file cleanup, and comprehensive metadata removal while maintaining a simple, intuitive user experience.
+
+## Contributing
+
+Contributions to improve Privacy Shield are welcome. Please follow these steps:
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Image not uploading**
+   - Check file size (max 16MB)
+   - Ensure file format is supported (PNG, JPG, JPEG, WEBP)
+
+2. **Face detection not working**
+   - Try adjusting the detection method (server, client, or hybrid)
+   - Some faces may not be detected due to angles, lighting, or occlusion
+
+3. **Database connection errors**
+   - Verify DATABASE_URL environment variable is correctly set
+   - Check PostgreSQL server is running
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+*Last updated: July 26, 2025*
