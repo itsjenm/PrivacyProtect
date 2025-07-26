@@ -1,4 +1,7 @@
 // Privacy Shield - Static Version JavaScript
+// This script handles the client-side functionality for the Privacy Shield web app
+
+
 let faceApiLoaded = false;
 let detectedFaces = [];
 let stats = JSON.parse(localStorage.getItem('privacyShieldStats')) || {

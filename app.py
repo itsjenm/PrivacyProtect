@@ -5,7 +5,7 @@ import cv2
 import numpy as np
 import json
 import time
-from datetime import datetime, date
+from datetime import date
 from PIL import Image, ExifTags
 from PIL.ExifTags import TAGS
 from flask import Flask, render_template, request, jsonify, send_file, flash, redirect, url_for
@@ -248,22 +248,22 @@ def detect_and_blur_faces_opencv(image_path, blur_strength=50):
                 faces_processed += 1
         
         logging.info(f"OpenCV detected and blurred {faces_processed} faces using {len(cascade_files)} cascades")
-        return img, faces_processed
+        
+        # Convert face coordinates to the expected format
+        detected_face_coords = []
+        for (x, y, w, h) in all_faces:
+            detected_face_coords.append({
+                'x': int(x),
+                'y': int(y), 
+                'width': int(w),
+                'height': int(h)
+            })
+        
+        return img, faces_processed, detected_face_coords
         
     except Exception as e:
         logging.error(f"Error in OpenCV face detection: {str(e)}")
         raise
-
-def detect_and_blur_faces(image_path, blur_strength=50):
-    """Legacy function - fallback to OpenCV detection"""
-    try:
-        logging.info("Using OpenCV face detection as fallback")
-        return detect_and_blur_faces_opencv(image_path, blur_strength)
-    except Exception as e:
-        logging.error(f"Error in fallback face detection: {str(e)}")
-        # Return original image if detection fails
-        img = cv2.imread(image_path)
-        return img, 0
 
 def get_image_metadata(image_path):
     """Extract metadata information from image"""
@@ -446,12 +446,13 @@ def upload_file():
         processed_path = os.path.join(PROCESSED_FOLDER, processed_filename)
         
         faces_detected = 0
+        server_face_coords = []
         
         if blur_faces:
             if detection_method == 'server':
                 # Force server-side OpenCV detection
                 logging.info("Using OpenCV server-side face detection (forced)")
-                processed_img, faces_detected = detect_and_blur_faces_opencv(file_path, blur_strength)
+                processed_img, faces_detected, server_face_coords = detect_and_blur_faces_opencv(file_path, blur_strength)
                 cv2.imwrite(processed_path, processed_img)
             elif detection_method == 'hybrid':
                 # Use both client and server detection for maximum coverage
@@ -465,11 +466,12 @@ def upload_file():
                     cv2.imwrite(processed_path, processed_img)
                     
                     # Then run server-side detection on the same image for additional faces
-                    additional_img, server_faces = detect_and_blur_faces_opencv(processed_path, blur_strength)
+                    additional_img, server_faces, additional_coords = detect_and_blur_faces_opencv(processed_path, blur_strength)
                     cv2.imwrite(processed_path, additional_img)
+                    server_face_coords = additional_coords
                 else:
                     # Only server-side if no client coordinates
-                    processed_img, server_faces = detect_and_blur_faces_opencv(file_path, blur_strength)
+                    processed_img, server_faces, server_face_coords = detect_and_blur_faces_opencv(file_path, blur_strength)
                     cv2.imwrite(processed_path, processed_img)
                 
                 faces_detected = client_faces + server_faces
@@ -482,7 +484,7 @@ def upload_file():
                     cv2.imwrite(processed_path, processed_img)
                 else:
                     logging.info("No client-side faces found, using OpenCV server-side detection")
-                    processed_img, faces_detected = detect_and_blur_faces_opencv(file_path, blur_strength)
+                    processed_img, faces_detected, server_face_coords = detect_and_blur_faces_opencv(file_path, blur_strength)
                     cv2.imwrite(processed_path, processed_img)
         else:
             # Just copy the original if no face blurring
@@ -536,6 +538,7 @@ def upload_file():
             'processed_filename': processed_filename,
             'original_metadata': original_metadata,
             'faces_detected': faces_detected,
+            'face_coordinates': server_face_coords,
             'original_size': original_size,
             'processed_size': processed_size,
             'size_reduction': round(((original_size - processed_size) / original_size) * 100, 1),
