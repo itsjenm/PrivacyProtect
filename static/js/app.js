@@ -323,6 +323,7 @@ document.addEventListener('DOMContentLoaded', function() {
             await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
             await faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
             await faceapi.nets.faceExpressionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
+            await faceapi.nets.ssdMobilenetv1.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.13/model');
             
             faceApiLoaded = true;
             console.log('Face-api.js models loaded successfully');
@@ -344,7 +345,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const detections = await faceapi
                 .detectAllFaces(imageElement, new faceapi.TinyFaceDetectorOptions())
                 .withFaceLandmarks()
-                .withFaceExpressions();
+                .withFaceExpressions()
+                .withFaceDescriptors();
             
             console.log(`Detected ${detections.length} faces`);
             return detections;
@@ -441,6 +443,7 @@ document.addEventListener('DOMContentLoaded', function() {
             // Get dominant expression
             let dominantExpression = 'neutral';
             let maxConfidence = 0;
+
             if (detection.expressions) {
                 Object.entries(detection.expressions).forEach(([expression, value]) => {
                     if (value > maxConfidence) {
@@ -485,6 +488,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             </div>
         `;
+
+        
 
         faceInfoContainer.innerHTML = infoHtml;
     }
