@@ -50,14 +50,14 @@ Privacy Shield is a Flask-based web application designed to protect user privacy
 
 
 ### 1. Face Detection
-![Face Detection](uploads/Face-Detection_Example.jpg)
+![Face Detection](screenshots/Face-Detection_Example.jpg)
 *Automatic face detection with overlay boxes*
 
 ### 2. Metadata View (Before)
-![Metadata View](uploads/meta-data-before.jpg)
+![Metadata View](screenshots/meta-data-before.jpg)
 
 ### 2. Metadata View (After)
-![Metadata View](uploads/meta-data-after.jpg)
+![Metadata View](screenshots/meta-data-after.jpg)
 *Display of removed metadata information*
 
 ## User Preferences
