@@ -192,14 +192,7 @@ temp/
 tmp/
 *.tmp
 
-# Image files (if you don't want to commit test images)
-*.jpg
-*.jpeg
-*.png
-*.gif
-*.bmp
-*.webp
-*.svg
+
 
 # Log files
 *.log
